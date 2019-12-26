@@ -12,7 +12,7 @@ environmental data. Functions include:
     
     - fib_thresh: FIB exceedance thresholds
     - load_data: Load modeling datasets
-    - clean: Cleans modeling datasets by imputing missing values, and removing missing 
+    - clean: Cleans modeling datasets by imputing missing values**, and removing missing 
       rows and columns
     - parse: Parse data into training and test subsets
     - pred_eval: Evaluates predictions statistics 
@@ -22,14 +22,14 @@ environmental data. Functions include:
     - test: TBD
 
 TODO List:
-    
-TODO - clean missing data - impute or delete columns/rows
+TODO - clean: impute, extreme values
 TODO - fit: correlation, var selection, add more model types or create seperate functions
 TODO - tune: add tuning function, create performance standard function with default
 TODO - test: add testing function
 
 
 """
+
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -39,10 +39,9 @@ import os
 import sys
 
 # %% DATA
-
-no_model = ['sample_time', 'TC', 'FC', 'ENT', 'TC1', 'FC1', 'ENT1', 
+default_no_model = ['sample_time', 'TC', 'FC', 'ENT', 'TC1', 'FC1', 'ENT1', 
             'TC_exc', 'FC_exc', 'ENT_exc', 'TC1_exc','FC1_exc', 'ENT1_exc', 
-            'logTC1', 'logFC1', 'logENT1', # previous sample typically not included
+            'logTC1', 'logFC1', 'log ENT1', # previous sample typically not included
             'wet','rad_1h', 'rad_2h', 'rad_3h', 'rad_4h',]
 
 
@@ -158,7 +157,7 @@ def load_data(file, years=[1991], season='a'):
 
 
 #%%
-def clean(df):
+def clean(df, percent_to_drop=0.05, save_vars=[]):
     '''
     Cleans modeling datasets by imputing missing values, and removing missing 
     rows and columns
@@ -166,12 +165,48 @@ def clean(df):
     Parameters:
         - df = Input dataframe (result from load_data)
         
+        - percent_to_drop = Fraction of total rows allowed of missing values in a variable
+          before it is dropped
+          
+        - save_vars = List of variables to keep in modeling dataset despite missing values
+        
     Output:
         - df_out = Cleaned Dataframe without missing values (Ready for modeling)
     '''
+    assert type(save_vars) == list, 'save_vars paramater must be a list containing variable names'
+    assert type(percent_to_drop) == float and 0 <= percent_to_drop < 1.0, 'percent_to_drop must be a fraction value'
     
-    df_out = df
+    print('\n\n- - | Dataset Cleaning | - -\n')
+    # Extreme Values
+    # Check for errors in 'dirty' data (range)
+#    for c in df_dirty.columns:
+#        if c in df_range.index:  # Out of range = NAN
+#            df_dirty[c][~df_dirty[c].between(df_range.loc[c]['lower'], df_range.loc[c]['upper'])] = nan
     
+    # Missing Values
+    print('- Missing Values -')
+    if (df.isna().sum() > 0).sum() > 0:  # If there are missing values
+        num_allow = int(len(df) * percent_to_drop) # num_allow - number of allowable missing points before drop
+        print('Number of missing data points allowed before variable drop: ' + str(num_allow))
+        miss_list = [x for x in df.columns if df[x].isna().sum() > num_allow] # Variables with missing data
+        miss_list = [x for x in miss_list if all(f not in x for f in ['TC','FC','ENT'])] # Except FIB vars
+        if len(save_vars) > 0:
+            miss_list = [x for x in miss_list if x not in save_vars] # Vars to keep
+        new_cols = [x for x in df.columns if x not in miss_list]
+        df = df[new_cols]  # Drop 'miss_list' variables from dirty dataset
+        if len(miss_list) > 0:
+            print('Dropped variables (' + str(len(miss_list))+ '):\n')
+            print(miss_list)
+        else: print('* No variables dropped *')
+    
+        # Drop remaining rows with missing values
+        df_out = df.dropna()  # Drop rows with missing values
+        print('\nDropped rows: ' + str(len(df) - len(df_out)))
+    else:
+        print('* No missing values in dataset *')
+        df_out = df
+    print('\n- Clean dataset -\nRows: ' + str(len(df_out)))
+    print('Columns: ' + str(len(df_out.columns)))
     return df_out
 
 
@@ -216,7 +251,7 @@ def parse(df, season='a', fib='ENT', parse_type='c', test_percentage=0.3, save_d
     assert type(test_percentage) == float and 0 <= test_percentage < 1.0, 'test_percentage must be a fraction value'
     
     # Remove other FIB variables
-    print('\n- - | Parsing Dataset | - -')
+    print('\n\n- - | Parsing Dataset | - -')
     other_fib = [x for x in ['TC','FC','ENT'] if x != fib]
     cols = df.columns
     for i in range(0, len(other_fib)):
@@ -224,7 +259,7 @@ def parse(df, season='a', fib='ENT', parse_type='c', test_percentage=0.3, save_d
     df = df[cols]  
     # TODO - check for previous FIB and logFIB vars, add if not there
     
-    print('FIB ' + fib)
+    print('FIB: ' + fib)
     df.sort_index(ascending=True, inplace=True) # Sort data into ascending time index
     # Split
     if parse_type == 'c':
@@ -383,73 +418,97 @@ def current_method(df, fib='ENT'):
     else:
         print('Cannot compute the current method performance for this dataset')
         return
-    
+
+
 #%% FIT MODEL
+def fit(y_train, X_train, model_type = 'mlr', cm=True, no_model=default_no_model):
+    '''
+    Fits predictive FIB model to dataset
     
-## Inputs: 
-## y_train, X_train, y_test, X_train (training and testing subset)
-## fib (TC,FC, or ENT)
-## model_type (MLR (mlr), BLR (blr), Random Forest (rf), Neural Net (nn))
-## current_method (True/Fals)
-#
-
-#
-#print('\n- - | Modeling (' + fib + ') | - -')
-#cols_perf = ['Sensitivity', 'Specificity', 'Accuracy', 'Exceedances', 'Samples']
-#df_perf = pd.DataFrame(columns = ['Model','Dataset'] + cols_perf)
-#df_perf = df_perf.set_index(['Model', 'Dataset']) 
-#
-## Check Exceedances
-#train_exc = X_train[f + '_exc'].sum()  # repeated from above
-#test_exc = X_test[f + '_exc'].sum()
-#if (train_exc < 2) | (test_exc == 0):  # If insufficient exceedances in cal/val sets, use new split method
-#    sys.exit('* Insufficient amount of exceedances in each dataset.Program terminated *')
-#
+    Parameters:
+        - y_train = Pandas Series of log10-transformed FIB values
+        
+        - X_train = Pandas DataFrame of modeling variables, including logFIB1 (previous FIB)
+        
+        - model_type = Type of model to be fit
+            - 'mlr': Multivariate linear regression
+            - 'lasso': Lasso regression (used for variable selection**)
+            - 'blr': Binary logistic regression
+            - 'rf': Random forest
+            - 'nn': Neural network
+            
+        - cm = Evaluate current method (Boolean)
     
-# Current Method
-#cm_train = X_train[[fib + '_exc', fib + '1_exc' ]]  #Assune 'FIB_exc' vars previously calculated
-#cm_test = X_test[[fib + '_exc', fib + '1_exc' ]]
-#
-#df_perf = df_perf.append(pd.DataFrame(model_eval(cm_train[f + '_exc'], cm_train[f + '1_exc']),
-#                                      index=[['Current Method'], ['Calibration']]),sort=False)  # CM performance
-#df_perf = df_perf.append(pd.DataFrame(model_eval(cm_test[f + '_exc'], cm_test[f + '1_exc']),
-#                                      index=[['Current Method'], ['Validation']]),sort=False)
-##df_perf.index.names = ['Model', 'Dataset']  # Name multiindex
-#df_perf = df_perf[cols_perf]
-#cm_perf = df_perf.loc['Current Method']
-#print('\n- Current (Persistence Method -\n')
-#print(cm_perf)
+    Output:
+        - model = XX
+        
+        - df_perf = DataFrame() of model performance (sensitivity, specificity) for model
+          and current method, if chosen
+        
+    ## Inputs: 
+    ## y_train, X_train, y_test, X_train (training and testing subset)
 
+    ## model_type (MLR (mlr), BLR (blr), Random Forest (rf), Neural Net (nn))
+    ## current_method (True/False)
+    #- save perf = save performance dataframe
+    #- current method = evaluate current method
+    #
+    '''
+    assert model_type in ['mlr','blr','lasso','rf','nn'], 'model_type must be one of: \'mlr\',\'blr\',\'lasso\',\'rf\',\'nn\''
+    assert type(no_model) == list, 'no_model parameter must be a list of variables to exclude from modeling'
+    # Find FIB from y_train name or in X_train vars
+    f = [f for f in ['TC','FC','ENT'] if f in y_train.name or any(f in x for x in X_train.columns)][0]
+    
+    print('\n\n- - | Fitting ' + f + ' Model (' + model_type.upper() + ') | - -')
+    
+    # Performance Dataframe Init (for printing)
+    cols_perf = ['Sensitivity', 'Specificity', 'Accuracy', 'Exceedances', 'Samples']
+    df_perf = pd.DataFrame(columns = ['Model'] + cols_perf)
+    df_perf = df_perf.set_index('Model') 
+    
+#    # Check Exceedances
+#    train_exc = X_train[f + '_exc'].sum()  # repeated from above
+#    if (train_exc < 2):  # If insufficient exceedances in cal/val sets, use new split method
+#        sys.exit('* Insufficient amount of exceedances in each dataset.Program terminated *')
+        
+    # Current Method
+    if cm == True:
+        cm_perf = current_method(X_train, fib=f)
+        df_perf = df_perf.append(pd.DataFrame(cm_perf,
+                                          index=['Current Method']),sort=False)
+    # TODO Variable Selections
+    
+    # Drop variables NOT to be modeled
+    # no_model = [] default to drop
+    to_model = [x for x in X_train.columns if x not in no_model]  # Drop excluded variables
+    X_train = X_train[to_model]
+    # TODO - Need to keep track of variables 
+    
+    if model_type == 'mlr':
+    # Linear Regression
+        model = LinearRegression()
+    #model = Ridge()
+    #model = Lasso()
+        model.fit(X_train,y_train)
+#    lasso_perf = df_perf.loc['Lasso Regression']
+#    print('\n- Lasso Regression -\n')
+#    print(lasso_perf)
+    
+    
+    #TODO Logistic Regression
+    
+    #TODO Random Forests
+    
+    #TODO Neural Networks
+    
+    # Model Performance
+    model_perf = pred_eval(y_train, model.predict(X_train), thresh=np.log10(fib_thresh(f)))
+    df_perf = df_perf.append(pd.DataFrame(model_perf, index=[model_type.upper()]),sort=False)
+    df_perf = df_perf[cols_perf]
+    
+    return model, df_perf
+    
+    
+#%% TUNE MODEL (MLR, BLR)
 
-#
-## Drop variables NOT to be modeled
-## no_model = [] default to drop
-#to_model = [x for x in X_train.columns if x not in no_model]  # Drop excluded variables
-#X_train = X_train[to_model]
-#X_test = X_test[to_model]
-#
-## Linear Regression
-##lm = LinearRegression()
-##lm = Ridge()
-#lm = Lasso()
-#lm.fit(X_train,y_train)
-#
-##df_perf = df_perf.append(pd.DataFrame(model_eval(y_train, lm.predict(X_train), np.log10(fib_thresh[fib])),
-##                                      index=[['Lasso Regression'], ['Calibration']]),sort=False)  # CM performance
-##df_perf = df_perf.append(pd.DataFrame(model_eval(y_test, lm.predict(X_test), np.log10(fib_thresh[fib])),
-##                                      index=[['Lasso Regression'], ['Validation']]),sort=False)
-##lasso_perf = df_perf.loc['Lasso Regression']
-##print('\n- Lasso Regression -\n')
-##print(lasso_perf)
-#
-## Logistic Regression
-#
-##TODO Random Forests
-#
-##TODO Neural Networks
-#
-#
-##%% TUNE MODEL (MLR, BLR)
-#
-#
-##%% TEST MODEL
+#%% TEST MODEL
