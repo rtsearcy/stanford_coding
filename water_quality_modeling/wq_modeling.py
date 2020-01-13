@@ -16,14 +16,17 @@ environmental data. Functions include:
       rows and columns
     - parse: Parse data into training and test subsets
     - pred_eval: Evaluates predictions statistics 
+    - select_vars: XXX
     - current_method: Computes performance metrics for the current method
+    - check_corr: Checks high correlation between modeling variables against FIB
     - fit: Fit model on training set
     - tune: TBD, tunes regression models to a certain set of performance standards
     - test: TBD
 
 TODO List:
 TODO - clean: impute, extreme values
-TODO - fit: correlation, var selection, add more model types or create seperate functions
+TODO - select_vars: CREATE
+TODO - fit: var selection, add more model types or create seperate functions
 TODO - tune: add tuning function, create performance standard function with default
 TODO - test: add testing function
 
@@ -41,8 +44,9 @@ import sys
 # %% DATA
 default_no_model = ['sample_time', 'TC', 'FC', 'ENT', 'TC1', 'FC1', 'ENT1', 
             'TC_exc', 'FC_exc', 'ENT_exc', 'TC1_exc','FC1_exc', 'ENT1_exc', 
-            'logTC1', 'logFC1', 'log ENT1', # previous sample typically not included
-            'wet','rad_1h', 'rad_2h', 'rad_3h', 'rad_4h',]
+            'logTC1', 'logFC1', 'logENT1', # previous sample typically not included
+            'wet','rad_1h', 'rad_2h', 'rad_3h', 'rad_4h', 
+            'MWD','MWD1','MWD1_b','MWD1_b_max', 'MWD1_b_min']
 
 
 # %%
@@ -146,7 +150,7 @@ def load_data(file, years=[1991], season='a'):
         if f + '_exc' not in df.columns: # Exceedance variables
             df[f + '_exc'] = (df[f] > fib_thresh(f)).astype(int)
             df[f + '1_exc'] = (df[f+'1'] > fib_thresh(f)).astype(int)
-            print(f + ' : ' + str(sum(df[f + '_exc'])))
+        print(f + ' : ' + str(sum(df[f + '_exc'])))
         if 'log' + f not in df.columns: # log10 transformed FIB variables
             df['log' + f] = np.log10(df[f])
             df['log' + f + '1'] = np.log10(df[f + '1'])
@@ -392,6 +396,88 @@ def pred_eval(true, predicted, thresh=0.5, tune=False):  # Evaluate Model Predic
     return out
 
 
+# %% CHECK CORRELATION
+def check_corr(dep, ind, thresh=0.5):
+    '''
+    Check if confounding variables have correlations > thresh, and drop the one with 
+    least correlation to the dependnet variable
+    
+    Parameters:
+        - dep - Pandas Series of the dependant variable
+        
+        - ind - Dataset (Pandas DF) containing modeling variables to be checked against the dependent
+          variables
+        
+        - thresh - Threshold for Pearson Correlation Coefficient between two variables
+          above which the least correlated variable to FIB will be dropped
+          
+    Output:
+        - DataFrame with the best correlated variables included
+    
+    '''
+    print('\nChecking variable correlations against threshold (PCC > ' + str(thresh) + '): ')
+    c = ind.corr()  # Pearson correlation coefs.
+    to_drop = []
+
+    for ii in c.columns:  # iterate through all variables in correlation matrix except dependant variable
+        temp = c.loc[ii]
+        temp = temp[temp.abs() > thresh]  # .5 removed a lot of variables
+        temp = temp.drop(ii, errors='ignore')  # Remove the variable itself
+        i_corr = dep.corr(ind[ii])
+        if len(temp) > 0:
+            for j in temp.index:
+                j_corr = dep.corr(ind[j])
+                if ii not in to_drop and abs(i_corr) < abs(j_corr):  # Drop variable if its corr. with logFIB is lower
+                    to_drop.append(ii)
+
+    print('  Variables dropped - ' + str(len(to_drop)))
+    ind = ind.drop(to_drop, axis=1, errors='ignore')  # Drop variables
+    print('Remaining variables - ' + str(len(ind.columns) - 1))
+    print(ind.columns.values)
+    return ind
+
+
+# %%
+def select_vars(y, X, method, no_model=default_no_model, corr_thresh=0.5, ):
+    '''
+    Selects best variables for modeling from dataset.
+    
+    Parameters:
+        - X = Independant variables
+        
+        - y = Dependant variable
+        
+        - method = TODO - Lasso, RFE
+        
+        - no_model = variables to exclude from modeling prior to analysis
+        
+        - corr_thresh = Threshold for Pearson Correlation Coefficient between two variables
+          above which the least correlated variable to FIB will be dropped
+            - If 'False' or 0 -> Correlation analysis will not be performed
+        
+    Output:
+        - Dataset with the best variables to use for modeling
+    '''
+    assert type(no_model) == list, 'no_model parameter must be a list of variables to exclude from modeling'
+    print('\n\n- - | Selecting Variables | - -')
+    print('\nOriginal # of Variables - ' + str(len(X.columns)))
+    
+    # Drop variables NOT to be modeled
+    if len(no_model) > 0:
+        print('\nAutomatically dropped variables - ' + str(len(no_model)))
+        print(no_model)
+        to_model = [x for x in X.columns if x not in no_model]  # Drop excluded variables
+        X = X[to_model]
+    
+    # Check similarly correlated vars to FIB 
+    if corr_thresh > 0:
+        X = check_corr(y, X, thresh=corr_thresh)  
+        
+        #lasso_perf = df_perf.loc['Lasso Regression']
+        #list(X_train.columns[list(np.where(model.coef_)[0])]) # vars Lasso kept
+        
+    return X
+    
 # %%
 def current_method(df, fib='ENT'):
     '''
@@ -408,7 +494,6 @@ def current_method(df, fib='ENT'):
         - Dictionary containing the performance metrics for the current method of the
           dataset. Returns NoneType if the function cannot find FIB data
     '''
-    
     if all(f in df.columns for f in [fib, fib + '1']):
         return pred_eval(df[fib], df[fib+'1'], thresh=fib_thresh(fib))
     elif all(f in df.columns for f in ['log' + fib, 'log' + fib + '1']):
@@ -420,8 +505,28 @@ def current_method(df, fib='ENT'):
         return
 
 
+#%% CHECK FOR MULTICOLLINEARITY
+#def multicollinearity_check(X, thr):  # Check VIF of model variables, drop if any above 'thr'
+#    variables = list(X.columns)
+#    print('Checking multicollinearity of ' + str(len(variables)) + ' variables for VIF:')
+#    if len(variables) > 1:
+#        vif_model = LinearRegression()
+#        v = [1 / (1 - (r2_score(X[ix], vif_model.fit(X[variables].drop(ix, axis=1), X[ix]).
+#                                predict(X[variables].drop(ix, axis=1))))) for ix in variables]
+#        maxloc = v.index(max(v))  # Drop max VIF var if above 'thr'
+#        if max(v) > thr:
+#            print(' Dropped: ' + X[variables].columns[maxloc] + ' (VIF - ' + str(round(max(v), 3)) + ')')
+#            variables.pop(maxloc)  # remove variable with maximum VIF
+#        else:
+#            print('VIFs for all variables less than ' + str(thr))
+#        X = X[[i for i in variables]]
+#        return X
+#    else:
+#        return X
+
+
 #%% FIT MODEL
-def fit(y_train, X_train, model_type = 'mlr', cm=True, no_model=default_no_model):
+def fit(y_train, X_train, model_type='mlr'):
     '''
     Fits predictive FIB model to dataset
     
@@ -454,8 +559,7 @@ def fit(y_train, X_train, model_type = 'mlr', cm=True, no_model=default_no_model
     #- current method = evaluate current method
     #
     '''
-    assert model_type in ['mlr','blr','lasso','rf','nn'], 'model_type must be one of: \'mlr\',\'blr\',\'lasso\',\'rf\',\'nn\''
-    assert type(no_model) == list, 'no_model parameter must be a list of variables to exclude from modeling'
+    assert model_type in ['mlr','blr','rf','nn'], 'model_type must be one of: \'mlr\',\'blr\',\'rf\',\'nn\''
     # Find FIB from y_train name or in X_train vars
     f = [f for f in ['TC','FC','ENT'] if f in y_train.name or any(f in x for x in X_train.columns)][0]
     
@@ -466,34 +570,12 @@ def fit(y_train, X_train, model_type = 'mlr', cm=True, no_model=default_no_model
     df_perf = pd.DataFrame(columns = ['Model'] + cols_perf)
     df_perf = df_perf.set_index('Model') 
     
-#    # Check Exceedances
-#    train_exc = X_train[f + '_exc'].sum()  # repeated from above
-#    if (train_exc < 2):  # If insufficient exceedances in cal/val sets, use new split method
-#        sys.exit('* Insufficient amount of exceedances in each dataset.Program terminated *')
-        
-    # Current Method
-    if cm == True:
-        cm_perf = current_method(X_train, fib=f)
-        df_perf = df_perf.append(pd.DataFrame(cm_perf,
-                                          index=['Current Method']),sort=False)
-    # TODO Variable Selections
-    
-    # Drop variables NOT to be modeled
-    # no_model = [] default to drop
-    to_model = [x for x in X_train.columns if x not in no_model]  # Drop excluded variables
-    X_train = X_train[to_model]
     # TODO - Need to keep track of variables 
     
     if model_type == 'mlr':
     # Linear Regression
         model = LinearRegression()
-    #model = Ridge()
-    #model = Lasso()
         model.fit(X_train,y_train)
-#    lasso_perf = df_perf.loc['Lasso Regression']
-#    print('\n- Lasso Regression -\n')
-#    print(lasso_perf)
-    
     
     #TODO Logistic Regression
     
@@ -505,6 +587,9 @@ def fit(y_train, X_train, model_type = 'mlr', cm=True, no_model=default_no_model
     model_perf = pred_eval(y_train, model.predict(X_train), thresh=np.log10(fib_thresh(f)))
     df_perf = df_perf.append(pd.DataFrame(model_perf, index=[model_type.upper()]),sort=False)
     df_perf = df_perf[cols_perf]
+    
+    print('\nModel Performance:\n')
+    print(df_perf)
     
     return model, df_perf
     

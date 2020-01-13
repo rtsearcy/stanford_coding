@@ -16,31 +16,31 @@ import time
 import os
 
 # Inputs #
-out_folder = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/rad'
+out_folder = 'S:\SCIENCE & POLICY\\NowCast\Modeling\summer_2019\Environmental Variables\Solar Radiation'
 
-start_date = '2008-01-01'  # in YYYY-MM-DD format, build in previous day
-end_date = '2019-10-31'
+start_date = '2002-12-31'  # in YYYY-MM-DD format, build in previous day
+end_date = '2018-10-31'
 
 api_key = '6216de17-d2ad-4f0f-b3d5-65ec3638c7c4'
 units = 'M'  # 'E' English, 'M' Metric
 
 stations = {
-#    'Santa Rosa': 83,  # ~10 miles from beach
-#    #'Pescadero': 253, # Active only since 2017
-#    'Santa Cruz': 104,  # De Lavega station
-#    'Watsonville West': 209,
+    'Santa Rosa': 83,  # ~10 miles from beach
+    #'Pescadero': 253, # Active only since 2017
+    'Santa Cruz': 104,  # De Lavega station
+    'Watsonville West': 209,
     'Castroville': 19,
     'Monterey': 193,  # Pacific Grove station
-#    'Carmel': 210,
-#    'San Luis Obispo': 160,  # Close to Morro Bay
-#    'Nipomo': 202,
-#    'Lompoc': 231,  # Active 2010
-#    'Santa Barbara': 107,
-#    'Santa Monica': 99,
-#    'Long Beach': 174,
-#    'Irvine': 75,
-#    #'San Clemente':, 241, Active only since 2016
-#    'Torrey Pines': 173
+    'Carmel': 210,
+    'San Luis Obispo': 160,  # Close to Morro Bay
+    'Nipomo': 202,
+    'Lompoc': 231,  # Active 2010
+    'Santa Barbara': 107,
+    'Santa Monica': 99,
+    'Long Beach': 174,
+    'Irvine': 75,
+    #'San Clemente':, 241, Active only since 2016
+    'Torrey Pines': 173
 }
 
 print('CIMIS Solar Radiation Data\nDirectory: ' + out_folder)
@@ -91,7 +91,7 @@ for s in stations:
     # Save to file
     df_out = df_out['rad1']
     missing = df_out.isnull().sum()
-    outfile = os.path.join(out_folder, s.replace(' ', '_') + '_CIMIS_Solar_Radiation_Variables_'
+    outfile = os.path.join(out_folder, s.replace(' ', '_') + '_Solar_Radiation_Variables_'
                            + start_date.replace('-', '') + '_' + end_date.replace('-', '') + '.csv')
     df_out.to_csv(outfile, header=True)  # PD Series
     print(str(missing) + ' days of missing data')

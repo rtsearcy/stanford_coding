@@ -12,11 +12,11 @@ import requests
 import os
 
 # Inputs
-outfolder = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/met'
+outfolder = '/Users/rtsearcy/Documents/Stanford/Projects/Targeted High Frequency Sampling/preliminary_analysis/raw_data/met'
 airport_file = os.path.join(outfolder, 'airports.csv')  # file with station metadata (see below for necessary columns)
 
-sd = '2007-12-31'  # start date, in YYYY-MM-DD format (account for previous day)
-ed = '2019-10-31'  # end date, account for 8hr UTC shift
+sd = '2018-04-20'  # start date, in YYYY-MM-DD format (account for previous day)
+ed = '2018-04-22'  # end date, account for 8hr UTC shift
 
 rs = 0  # 0 - grab raw data from internet; 1 - grab raw data from flat files (saves time)
 

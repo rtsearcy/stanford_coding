@@ -18,10 +18,10 @@ from dateutil.parser import parse
 import pandas as pd
 
 # Inputs
-path = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/coops'
+path = '/Users/rtsearcy/Documents/Stanford/Projects/Targeted High Frequency Sampling/preliminary_analysis/raw_data'
 
-begin_date_s = '20080101'
-end_date_s = '20191031'
+begin_date_s = '20180420'
+end_date_s = '20180421'
 
 units = 'metric'  # Temp = C, Speed = m/s, Pressure = mbar
 time_zone = 'lst_ldt'  # 'lst' Local Standard Time (ignore DLS); 'lst_ldt' if DLS desired
