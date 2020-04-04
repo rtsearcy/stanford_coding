@@ -12,18 +12,18 @@ import requests
 import os
 
 # Inputs
-outfolder = '/Users/rtsearcy/Documents/Stanford/Projects/Targeted High Frequency Sampling/preliminary_analysis/raw_data/met'
+outfolder = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/met'
 airport_file = os.path.join(outfolder, 'airports.csv')  # file with station metadata (see below for necessary columns)
 
-sd = '2018-04-20'  # start date, in YYYY-MM-DD format (account for previous day)
-ed = '2018-04-22'  # end date, account for 8hr UTC shift
+sd = '2017-01-01'  # start date, in YYYY-MM-DD format (account for previous day)
+ed = '2020-03-01'  # end date, account for 8hr UTC shift
 
 rs = 0  # 0 - grab raw data from internet; 1 - grab raw data from flat files (saves time)
 
 # Import Airport Stations
 df_air = pd.read_csv(airport_file)
 df_air.set_index('NAME', inplace=True)
-air_list = ['Monterey Peninsula'] #list(df_air.index)  # or custom list on airport locations
+air_list = ['Santa Monica Municipal'] #list(df_air.index)  # or custom list on airport locations
 
 print('Meterological Data\nDirectory: ' + outfolder )
 for a in air_list:

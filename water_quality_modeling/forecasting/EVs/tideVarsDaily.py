@@ -29,12 +29,13 @@ def lt(df, thresh):  # Compute less than binary var.
 
 
 # Import raw data csv to pd DataFrame
-path = '/Users/rtsearcy/Documents/Stanford/Projects/WQ Forecasting/data/tides'
+#path = '/Users/rtsearcy/data/water_quality_modeling/forecasting/tides'
+path = '/Users/rtsearcy/Box/water_quality_modeling/data/tide/observations'
 raw_path = os.path.join(path, 'raw')
 # To use for setting up daily run folder
 
 sd = '20080101'  # Start date (account for previous day, conservative)
-ed = '20201231'  # End date
+ed = '20200301'  # End date
 
 
 # TO PROCESS SINGLE FILE
@@ -63,7 +64,10 @@ for file in os.listdir(raw_path):
     df_out = pd.DataFrame(index=df_raw.resample('D').mean().index)  # Preset index to days
 
     #%% Tide (Tide level at 6a PST) - MAY NEED TO VARY THIS IF SAMPLE TIME IS KNOWN
-    
+    df_out['Tide5'] = df_raw[(df_raw.index.hour == 5) & (df_raw.index.minute == 0)].resample('D').mean()
+    df_out['Tide6'] = df_raw[(df_raw.index.hour == 6) & (df_raw.index.minute == 0)].resample('D').mean()
+    df_out['Tide7'] = df_raw[(df_raw.index.hour == 7) & (df_raw.index.minute == 0)].resample('D').mean()
+    df_out['Tide8'] = df_raw[(df_raw.index.hour == 8) & (df_raw.index.minute == 0)].resample('D').mean()
     #%% Tide Stage - TODO if sample time is available
 
     #%% Max/Min/Range
@@ -97,7 +101,7 @@ for file in os.listdir(raw_path):
             df_out[c.replace('GT', 'GT1')] = df_out[c].shift(1)  # Previous Day's value timestamped to today
         elif 'LT' in c:
             df_out[c.replace('LT', 'LT1')] = df_out[c].shift(1)  # Previous Day's value timestamped to today
-        else:
+        elif c in ['TideMax','TideMin','TideR']:
             df_out[c + '1'] = df_out[c].shift(1)  # Previous Day's value timestamped to today
 
     #%% Spring/Neap

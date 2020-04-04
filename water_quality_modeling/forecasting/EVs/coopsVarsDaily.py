@@ -15,10 +15,10 @@ import re
 import os
 
 # Inputs
-outfolder = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/coops'
+outfolder = '/Users/rtsearcy/Box/water_quality_modeling/data/coops'
 infolder = os.path.join(outfolder, 'raw')
 
-sd = '20071231'  # Start date (account for previous day, conservative)
+sd = '20080101'  # Start date (account for previous day, conservative)
 ed = '20191031'  # End date
 
 # TO PROCESS SINGLE FILE
@@ -58,7 +58,8 @@ for file in os.listdir(infolder):
         df_vars[p + '1_min'] = df_raw[p].resample('D').min().shift(1, freq='D')  # previous day min
 
     # Export vars to spreadsheet
-    outname = station.replace(' ', '_') + '_COOPS_Variables_' + sd + '_' + ed + '.csv'
+    #outname = station.replace(' ', '_') + '_COOPS_Variables_' + sd + '_' + ed + '.csv'
+    outname = file.replace('.csv','_variables.csv')
     out_file = os.path.join(outfolder, outname)
     df_vars.to_csv(out_file)
     print('  NOAA CO-OPS variables for ' + station + ' written to ' + outname)

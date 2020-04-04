@@ -8,13 +8,16 @@ import os
 import matplotlib.pyplot as plt
 
 # %% Import Data
-folder = '/Users/rtsearcy/Documents/Stanford/Projects/Targeted High Frequency Sampling/preliminary_analysis/raw_data'
-file = 'modeling_dataset_10min_april2013.csv'
-file = 'modeling_dataset_10min_april2016.csv'
-#file = 'modeling_dataset_10min_april2018_siteM.csv'
-print('Dataset: ' + file)
 
-df = pd.read_csv(os.path.join(folder, file), parse_dates=['dt'], index_col=['dt'])
+folder = '/Users/rtsearcy/Box/water_quality_modeling/thfs/'
+trad_file = 'traditional_nowcast/modeling_datasets/LP_trad_modeling_dataset_20000101_20200301.csv'
+hf_file = 'hf/modeling_datasets/LP_hf_modeling_dataset_20130421.csv'
+#file = 'modeling_dataset_10min_april2016.csv'
+#file = 'modeling_dataset_10min_april2018_siteM.csv'
+#print('Dataset: ' + file)
+
+df_trad = pd.read_csv(os.path.join(folder, trad_file), parse_dates=['dt'], index_col=['dt'])
+df_hf = pd.read_csv(os.path.join(folder, hf_file), parse_dates=['dt'], index_col=['dt'])
 
 # %% FIB Statistics and Plots
 print('Number of Samples: ' + str(len(df)))

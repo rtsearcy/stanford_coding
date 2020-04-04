@@ -25,18 +25,19 @@ stations_dict = {
     'Crescent City': '9419750'  # Del Norte
 }
 
-path = 'Z:\Predictive Modeling\Phase III\Modeling\Data\Tides\Raw\\'
+path = '/Users/rtsearcy/Box/water_quality_modeling/data/tide/observations/raw'
 
 for key in stations_dict:
     station_num = stations_dict[key]  # San Diego
     station_name = key
     begin_date = '20080101'
-    end_date = '20201231'
+    end_date = '2020301'
 
     datum = 'MLLW'  # Mean Lower Low Water (Lowest tide if diurnal)
     units = 'metric'
     time_zone = 'lst'  # Local Standard Time (ignore DLS)
-    product = 'predictions'
+    #product = 'predictions'
+    product = 'water_level;
     form = 'json'
 
     begin_date = parse(begin_date)

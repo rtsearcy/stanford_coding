@@ -16,18 +16,18 @@ environmental data. Functions include:
       rows and columns
     - parse: Parse data into training and test subsets
     - pred_eval: Evaluates predictions statistics 
-    - select_vars: XXX
+    - select_vars: Selects best variables for modeling from dataset
     - current_method: Computes performance metrics for the current method
+    - multicollinearity_check: Check VIF of model variables, drop if any above threshold
     - check_corr: Checks high correlation between modeling variables against FIB
     - fit: Fit model on training set
-    - tune: TBD, tunes regression models to a certain set of performance standards
+    - tune: tunes regression models to a certain set of performance standards
     - test: TBD
+    - save: Saves model fits, performance, coefficients
 
 TODO List:
 TODO - clean: impute, extreme values
-TODO - select_vars: CREATE
-TODO - fit: var selection, add more model types or create seperate functions
-TODO - tune: add tuning function, create performance standard function with default
+TODO - fit: add more model types (ann, RF) or create seperate functions
 TODO - test: add testing function
 
 
@@ -36,8 +36,10 @@ TODO - test: add testing function
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression, LinearRegression, Lasso, Ridge
+from sklearn.linear_model import LogisticRegression, LinearRegression, LassoCV
 from sklearn.metrics import confusion_matrix, roc_curve, r2_score
+from sklearn.feature_selection import RFE
+from sklearn.externals import joblib
 import os
 import sys
 
@@ -47,6 +49,13 @@ default_no_model = ['sample_time', 'TC', 'FC', 'ENT', 'TC1', 'FC1', 'ENT1',
             'logTC1', 'logFC1', 'logENT1', # previous sample typically not included
             'wet','rad_1h', 'rad_2h', 'rad_3h', 'rad_4h', 
             'MWD','MWD1','MWD1_b','MWD1_b_max', 'MWD1_b_min']
+
+# Model Performance criteria
+default_perf_criteria = {  
+    'sens_min': 0.3,  # Model sensitivity must be at least this
+    'sens_plus_cm': 0.1,  # Model sensitivity must also be at least this much greater than the current method
+    'spec_min': 0.85  # Model specificity must be at least this
+}
 
 
 # %%
@@ -215,7 +224,7 @@ def clean(df, percent_to_drop=0.05, save_vars=[]):
 
 
 #%% 
-def parse(df, season='a', fib='ENT', parse_type='c', test_percentage=0.3, save_dir=None):
+def parse(df, fib='ENT', parse_type='c', test_percentage=0.3, save_dir=None):
     '''
     Parse dataset into training and test subset to be used for model fitting
     and evaluation.
@@ -437,23 +446,60 @@ def check_corr(dep, ind, thresh=0.5):
     return ind
 
 
+#%% CHECK FOR MULTICOLLINEARITY
+def multicollinearity_check(X, thr=5):  
+    '''
+    Check VIF of model variables, drop if any above threshold
+    
+    Parameters:
+        - X = Variable dataset
+        
+        - thr = threshold VIF maximum
+        
+    Output:
+        - Dataset with no multicolinear variables
+        
+    '''
+    variables = list(X.columns)
+    print('\nChecking multicollinearity of ' + str(len(variables)) + ' variables for VIF:')
+    if len(variables) > 1:
+        vif_model = LinearRegression()
+        v = [1 / (1 - (r2_score(X[ix], vif_model.fit(X[variables].drop(ix, axis=1), X[ix]).
+                                predict(X[variables].drop(ix, axis=1))))) for ix in variables]
+        maxloc = v.index(max(v))  # Drop max VIF var if above 'thr'
+        if max(v) > thr:
+            print(' Dropped: ' + X[variables].columns[maxloc] + ' (VIF - ' + str(round(max(v), 3)) + ')')
+            variables.pop(maxloc)  # remove variable with maximum VIF
+        else:
+            print(' VIFs for all variables less than ' + str(thr))
+        X = X[[i for i in variables]]
+        return X
+    else:
+        return X
+
+
 # %%
-def select_vars(y, X, method, no_model=default_no_model, corr_thresh=0.5, ):
+def select_vars(y, X, method, no_model=default_no_model, corr_thresh=0.5, vif=5):
     '''
     Selects best variables for modeling from dataset.
     
     Parameters:
-        - X = Independant variables
-        
         - y = Dependant variable
         
-        - method = TODO - Lasso, RFE
+        - X = Independant variables
+        
+        - method = Variable selection method
+            - 'lasso' - Lasso Regressions - insignificant variables automatically 
+               assigned 0 coefficient
+            - 'rfe' - Recursive Feature Elimination - Selects best features 
         
         - no_model = variables to exclude from modeling prior to analysis
         
         - corr_thresh = Threshold for Pearson Correlation Coefficient between two variables
           above which the least correlated variable to FIB will be dropped
             - If 'False' or 0 -> Correlation analysis will not be performed
+            
+        - vif = Maximum VIF for multicollinearity check
         
     Output:
         - Dataset with the best variables to use for modeling
@@ -473,11 +519,53 @@ def select_vars(y, X, method, no_model=default_no_model, corr_thresh=0.5, ):
     if corr_thresh > 0:
         X = check_corr(y, X, thresh=corr_thresh)  
         
-        #lasso_perf = df_perf.loc['Lasso Regression']
-        #list(X_train.columns[list(np.where(model.coef_)[0])]) # vars Lasso kept
-        
+    # Select variables
+    print('\nVariable Selection Method: ' + method.upper() + '\n')
+    multi=True
+    while multi:
+        if method == 'lasso':  # LASSO
+            lm = LassoCV(cv=5).fit(X, y)
+            new_vars = list(X.columns[list(np.where(lm.coef_)[0])]) # vars Lasso kept
+            assert len(new_vars) > 0, 'Lasso regression failed to select any variables'
+            X = X[new_vars]
+            
+        elif method == 'rfe':  # Recursive Feature Elimination w. Linear Regression
+            # Credit: https://towardsdatascience.com/feature-selection-with-pandas-e3690ad8504b
+            low_score=1*10**6
+            nof=0           
+            for n in range(1,10):
+                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
+                lm = LinearRegression(normalize=True)
+                rfe = RFE(lm, n)
+                X_train_rfe = rfe.fit_transform(X_tr,y_tr)
+                X_test_rfe = rfe.transform(X_te)
+                lm.fit(X_train_rfe,y_tr)
+                score = ((((lm.predict(X_test_rfe) - y_te)**2).sum())**0.5) / len(y_te)  # RMSE
+                #score = lm.score(X_test_rfe,y_te)  # R2 of prediction
+                #print(str(score))
+                if(score<low_score):
+                    low_score = score
+                    nof = n
+            print("Optimum number of features: %d" %nof)
+            print("R2 with %d features: %f" % (nof, low_score))
+            
+            lm = LinearRegression(normalize=True)
+            S = RFE(lm,nof).fit(X, y)
+            new_vars = list(X.columns[list(np.where(S.support_)[0])])
+            X = X[new_vars]
+             
+        # Check VIF
+        X_multi = multicollinearity_check(X, thr=vif)
+        if len(X_multi.columns) == len(X.columns):
+            multi = False
+        else:
+            X = X_multi
+    
+    print('\nFinal Variables Selected - ' + str(len(X.columns)))
+    print(X.columns.values)    
     return X
     
+
 # %%
 def current_method(df, fib='ENT'):
     '''
@@ -505,26 +593,6 @@ def current_method(df, fib='ENT'):
         return
 
 
-#%% CHECK FOR MULTICOLLINEARITY
-#def multicollinearity_check(X, thr):  # Check VIF of model variables, drop if any above 'thr'
-#    variables = list(X.columns)
-#    print('Checking multicollinearity of ' + str(len(variables)) + ' variables for VIF:')
-#    if len(variables) > 1:
-#        vif_model = LinearRegression()
-#        v = [1 / (1 - (r2_score(X[ix], vif_model.fit(X[variables].drop(ix, axis=1), X[ix]).
-#                                predict(X[variables].drop(ix, axis=1))))) for ix in variables]
-#        maxloc = v.index(max(v))  # Drop max VIF var if above 'thr'
-#        if max(v) > thr:
-#            print(' Dropped: ' + X[variables].columns[maxloc] + ' (VIF - ' + str(round(max(v), 3)) + ')')
-#            variables.pop(maxloc)  # remove variable with maximum VIF
-#        else:
-#            print('VIFs for all variables less than ' + str(thr))
-#        X = X[[i for i in variables]]
-#        return X
-#    else:
-#        return X
-
-
 #%% FIT MODEL
 def fit(y_train, X_train, model_type='mlr'):
     '''
@@ -550,14 +618,6 @@ def fit(y_train, X_train, model_type='mlr'):
         - df_perf = DataFrame() of model performance (sensitivity, specificity) for model
           and current method, if chosen
         
-    ## Inputs: 
-    ## y_train, X_train, y_test, X_train (training and testing subset)
-
-    ## model_type (MLR (mlr), BLR (blr), Random Forest (rf), Neural Net (nn))
-    ## current_method (True/False)
-    #- save perf = save performance dataframe
-    #- current method = evaluate current method
-    #
     '''
     assert model_type in ['mlr','blr','rf','nn'], 'model_type must be one of: \'mlr\',\'blr\',\'rf\',\'nn\''
     # Find FIB from y_train name or in X_train vars
@@ -574,17 +634,38 @@ def fit(y_train, X_train, model_type='mlr'):
     
     if model_type == 'mlr':
     # Linear Regression
+        t = np.log10(fib_thresh(f))
         model = LinearRegression()
         model.fit(X_train,y_train)
+        coef = model.coef_
+        intercept = model.intercept_
     
+    elif model_type == 'blr':
+        t = 0.5
+        y_train = (y_train > np.log10(fib_thresh(f))).astype(int)  # To binary
+        model = LogisticRegression(random_state=0, C=0.1, solver='lbfgs')
+        model.fit(X_train, y_train)
+        coef = model.coef_[0]
+        intercept = model.intercept_[0]
+        
     #TODO Logistic Regression
     
     #TODO Random Forests
     
     #TODO Neural Networks
     
+    # Fit
+    if model_type in ['mlr','blr']:
+        print('\nModel Fit:')
+        print('Variable - Coefficient')
+        print('- - - - - - - - - - - - - -')
+        for x in range(0, len(X_train.columns)):
+            print(X_train.columns[x] + ' -   '  + str(round(coef[x],4)))
+        print('Intercept -   ' + str(round(intercept,4)))
+    
     # Model Performance
-    model_perf = pred_eval(y_train, model.predict(X_train), thresh=np.log10(fib_thresh(f)))
+    
+    model_perf = pred_eval(y_train, model.predict(X_train), thresh=t)
     df_perf = df_perf.append(pd.DataFrame(model_perf, index=[model_type.upper()]),sort=False)
     df_perf = df_perf[cols_perf]
     
@@ -595,5 +676,105 @@ def fit(y_train, X_train, model_type='mlr'):
     
     
 #%% TUNE MODEL (MLR, BLR)
+def tune(y, X, model, cm_perf, perf_criteria=default_perf_criteria):
+    '''
+    Tune MLR or BLR model (using the calibration dataset) to acheive 
+    prediction performnance standards. Tuned models are referred to as MLR-T and BLR-T
+    
+    Parameters:
+        - y = Pandas Series of log10-transformed FIB values (Calibration)
+        
+        - X = Calibration modeling dataset
+        
+        - model = Fit sklearn model (LinearRegression or LogisticRegression only)
+        
+        - cm_perf = Dictionary of Current Method performance metrics in the Calibration
+          dataset
+        
+        - perf_criteria = Dictionary of Sensitivity and Specificity metrics to 
+          tune model to
+          
+    Output:
+        - tuning_parameter = Multiplier to attach to predictions for MLR-T/BLR-T output
+    '''
+    # Find FIB from y_train name or in X_train vars
+    f = [f for f in ['TC','FC','ENT'] if f in y.name or any(f in x for x in X.columns)][0]
+    t = np.log10(fib_thresh(f))  # exceedance threshold
+    
+    if 'LogisticRegression' in str(type(model)):
+        model_type = 'blr'
+        print('\n- - | Tuning ' + f + ' Model (' + model_type.upper() + ') | - -')
+        y = (y > t).astype(int)
+        y_pred = model.predict_proba(X)[:, 1]  # Prob. of a post in calibration
+        tune_st = round(max(y_pred),4)  # tuning start index
+        tune_range = np.arange(tune_st, 0, -0.0001)
+        sens_spec = np.array([pred_eval(y, (y_pred >= j).astype(int), thresh=0.5, tune=True) for j in tune_range])
+        
+    elif 'LinearRegression' in str(type(model)):
+        model_type = 'mlr'
+        print('\n- - | Tuning ' + f + ' Model (' + model_type.upper() + ') | - -')
+        y_pred = model.predict(X)  # Prediction
+        tune_range = np.arange(0.7, 2.25, 0.001)
+        sens_spec = np.array([pred_eval(y, (y_pred * j), thresh=t, tune=True) for j in tune_range])
+        
+    T = np.column_stack((sens_spec, tune_range))
+    # Find all tuning factors (PM) that enable model to meet performance criteria
+    meets_criteria_t = (T[:, 0] > perf_criteria['sens_min']) & \
+                       (T[:, 0] > perf_criteria['sens_plus_cm'] + cm_perf['Sensitivity']) & \
+                       (T[:, 1] >= min(perf_criteria['spec_min'], cm_perf['Specificity']))
+    
+    U = T[meets_criteria_t]
+
+    if U.size == 0:
+        print('\n* * * No tuning available that passes model performance criteria for training set * * *\n')
+        return np.nan
+    else:
+        tuning_parameter = round(U[0, -1],4)
+        print('Tuning Parameter = ' + str(tuning_parameter))
+        return tuning_parameter  # Select most conservative passing model (minimum sensitivity in order to max specificity)
+    
 
 #%% TEST MODEL
+    
+#%% SAVE MODEL, DATASETS, PERFORMANCE
+def save_model(folder, name, model = None, df_coef = None, df_perf = None):
+    '''
+    Saves model pickle file, model coefficients, and/or model performance
+    
+    Parameters:
+        - folder = Save directory
+        
+        - name = Desired name for modeling files (string)
+        
+        - model = Model fit
+        
+        - df_coef = Model variables and coefficients (if applicable)
+        
+        - df_perf = DataFrame of model performance
+        
+    '''
+    print('Save Directory: ' + folder)
+    # Save Model Fit
+    if model is not None:
+        if 'LinearRegression' in str(type(model)):
+            model_type = 'MLR-T'
+        elif 'LogisticRegression' in str(type(model)):
+            model_type = 'BLR-T'
+        model.coef_ = model.coef_[model.coef_ != 0]  # .reshape(1, -1)  # Drop zero-coefficients
+        model_file = 'model_' + name.replace(' ', '_') + '_' + model_type + '.pkl'
+        joblib.dump(model, os.path.join(folder, model_file))
+        print('  Model fit saved to: ' + model_file )
+        # use joblib.load to load this file in the model runs script
+    
+    # Save Coefficients
+    if df_coef is not None:
+        df_coef = df_coef[abs(df_coef) > 0]  # Drop zero coefficients
+        coef_file = 'coefficients_' + name.replace(' ', '_') + '_' + model_type + '.csv'
+        df_coef.to_csv(os.path.join(folder, coef_file))
+        print('  Model coefficients saved to: ' + coef_file )
+    
+    # Save Performance
+    if df_perf is not None:
+        perf_file = 'performance_' + name.replace(' ', '_') + '_' + model_type + '.csv'
+        df_perf.to_csv(os.path.join(folder, perf_file), float_format='%.3f')
+        print('Model performance saved to: ' + perf_file )

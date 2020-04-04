@@ -18,14 +18,18 @@ from dateutil.parser import parse
 import pandas as pd
 
 # Inputs
-path = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/coops'
+#path = '/Users/rtsearcy/data/water_quality_modeling/thfs/preliminary_analysis/raw_data/coops'
+path = '/Users/rtsearcy/Box/water_quality_modeling/data/tide/observations'
 
 begin_date_s = '20080101'
 end_date_s = '20191031'
 
 units = 'metric'  # Temp = C, Speed = m/s, Pressure = mbar
-time_zone = 'lst_ldt'  # 'lst' Local Standard Time (ignore DLS); 'lst_ldt' if DLS desired
-product = ['air_temperature', 'water_temperature', 'wind', 'air_pressure']
+time_zone = 'lst'  # 'lst' Local Standard Time (ignore DLS); 'lst_ldt' if DLS desired
+product = ['air_temperature', 
+           'water_temperature', 
+           'wind', 
+           'air_pressure']
 form = 'json'
 
 stations_dict = {
@@ -55,13 +59,22 @@ for key in stations_dict:
         df = pd.DataFrame()
         c = 0
         bd = begin_date
-        if end_date > begin_date + timedelta(days=30): # NOAA-COOPS allows for up to 31 days of data per grab
-            ed = begin_date + timedelta(days=30) 
-        else:
-            ed = end_date
+#        if end_date > begin_date + timedelta(days=30): # NOAA-COOPS allows for up to 31 days of data per grab
+#            ed = begin_date + timedelta(days=30) 
+#        else:
+#            ed = end_date
+        
+        ed = begin_date + timedelta(days=30) 
 
         print('Collecting ' + p + ' data for ' + station_name + '...')
-        while c == 0:  # NOAA CO-OPS only allows collection of 31 days of data at a time
+        while ed < end_date:
+        #while c == 0:  # NOAA CO-OPS only allows collection of 31 days of data at a time
+            if c != 0:
+                bd = ed + timedelta(days=1)
+                ed = ed + timedelta(days=30)  # Account for timestep limit
+            if ed > end_date:
+                ed = end_date
+        
             print('   Searching for ' + p + ' data from ' + bd.strftime('%Y%m%d') + ' to ' + ed.strftime('%Y%m%d'))
 
             url = 'http://tidesandcurrents.noaa.gov/api/datagetter?' + \
@@ -91,11 +104,11 @@ for key in stations_dict:
 
             df = df.append(pd.DataFrame.from_dict(data), ignore_index=True)
             
-            # change time parameters for the next API call
-            bd = ed + timedelta(days=1)
-            ed = ed + timedelta(days=30)
-            if ed > end_date:
-                c += 1
+#            # change time parameters for the next API call
+#            bd = ed + timedelta(days=1)
+#            ed = ed + timedelta(days=30)
+#            if ed > end_date:
+            c += 1
                     
 
         if len(df) > 0:
